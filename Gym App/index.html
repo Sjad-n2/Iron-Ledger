@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <title>Iron Ledger</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Primary">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">IL</div>
+          <div>
+            <strong>Iron Ledger</strong>
+            <span>Local gym stats</span>
+          </div>
+        </div>
+
+        <nav class="nav-list">
+          <button class="nav-item active" data-view="dashboard" type="button">
+            <span class="icon">01</span>
+            Dashboard
+          </button>
+          <button class="nav-item" data-view="stats" type="button">
+            <span class="icon">02</span>
+            Stats
+          </button>
+          <button class="nav-item" data-view="history" type="button">
+            <span class="icon">03</span>
+            History
+          </button>
+          <button class="nav-item" data-view="log" type="button">
+            <span class="icon">04</span>
+            Log Session
+          </button>
+          <button class="nav-item" data-view="exercises" type="button">
+            <span class="icon">05</span>
+            Exercises
+          </button>
+          <button class="nav-item" data-view="notes" type="button">
+            <span class="icon">06</span>
+            Notes
+          </button>
+        </nav>
+
+        <div class="vault-card">
+          <span class="label">Vault</span>
+          <strong id="vaultName">Seeded demo</strong>
+          <span id="vaultStatus">Using imported markdown snapshot</span>
+          <button id="pickVaultButton" class="ghost-button" type="button">Choose Obsidian Folder</button>
+          <label class="file-button">
+            Import MD/TXT Files
+            <input id="fileImportInput" type="file" accept=".md,.txt,text/markdown,text/plain" multiple />
+          </label>
+        </div>
+      </aside>
+
+      <main class="main-stage">
+        <header class="topbar">
+          <div>
+            <h1 id="pageTitle">Training Dashboard</h1>
+            <p id="sessionSubtitle">Latest tracked session</p>
+          </div>
+          <div class="top-actions">
+            <button id="sampleButton" class="secondary-button" type="button">Load Pasted Example</button>
+            <label class="secondary-button file-action">
+              Import MD/TXT
+              <input id="topFileImportInput" type="file" accept=".md,.txt,text/markdown,text/plain" multiple />
+            </label>
+            <button id="refreshButton" class="primary-button" type="button">Refresh Stats</button>
+          </div>
+        </header>
+
+        <section class="view active" id="dashboardView" aria-label="Dashboard">
+          <section class="metric-grid" aria-label="Headline metrics">
+            <article class="metric-panel">
+              <span class="label">Latest Session</span>
+              <strong id="latestDate">2026-06-10</strong>
+              <span id="latestCount">10 exercises tracked</span>
+            </article>
+            <article class="metric-panel">
+              <span class="label">Working Sets</span>
+              <strong id="workingSets">12</strong>
+              <span id="rirAverage">0.1 avg RIR</span>
+            </article>
+            <article class="metric-panel warning">
+              <span class="label">Flags</span>
+              <strong id="flagCount">3</strong>
+              <span>Technique and cable notes</span>
+            </article>
+            <article class="metric-panel success">
+              <span class="label">Tracked Volume</span>
+              <strong id="weeklyVolume">2,577kg</strong>
+              <span>Excludes cable caveats</span>
+            </article>
+          </section>
+
+          <section class="sync-strip panel" aria-label="Vault sync">
+            <div>
+              <span class="label">Sync Queue</span>
+              <h2 id="syncQueueTitle">No pending sessions</h2>
+              <p id="syncQueueStatus">Saved sessions stay in this browser until you sync or export them.</p>
+            </div>
+            <div class="sync-actions">
+              <button id="syncVaultButton" class="primary-button" type="button">Sync Pending to Vault</button>
+              <button id="downloadSyncButton" class="secondary-button" type="button">Download Sync Bundle</button>
+            </div>
+          </section>
+
+          <section class="dashboard-grid">
+            <article class="panel volume-panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="label">Volume</span>
+                  <h2>Latest muscle group load</h2>
+                </div>
+                <span class="subtle">kg x reps</span>
+              </div>
+              <div id="volumeChart" class="bar-chart" aria-label="Volume by muscle group"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="label">History</span>
+                  <h2>Recent sessions</h2>
+                </div>
+                <button class="ghost-button compact" data-view-jump="history" type="button">Open</button>
+              </div>
+              <div id="recentSessions" class="session-list compact-list"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="label">RIR</span>
+                  <h2>Latest effort distribution</h2>
+                </div>
+              </div>
+              <div id="rirChart" class="rir-chart" aria-label="RIR distribution"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="label">Watchlist</span>
+                  <h2>Flags from logs</h2>
+                </div>
+              </div>
+              <ul id="flagList" class="note-list"></ul>
+            </article>
+          </section>
+        </section>
+
+        <section class="view" id="statsView" aria-label="Stats and graphs">
+          <section class="panel stats-toolbar">
+            <div>
+              <span class="label">Graph Filters</span>
+              <h2>Stats and graphs</h2>
+            </div>
+            <div class="filter-grid">
+              <label>
+                Date range
+                <select id="statsRange">
+                  <option value="all">All sessions</option>
+                  <option value="latest">Latest session</option>
+                  <option value="last2">Last 2 sessions</option>
+                  <option value="last4">Last 4 sessions</option>
+                </select>
+              </label>
+              <label>
+                Muscle
+                <select id="statsMuscle"></select>
+              </label>
+              <label>
+                Exercise
+                <select id="statsExercise"></select>
+              </label>
+              <label>
+                Metric
+                <select id="statsMetric">
+                  <option value="volume">Volume</option>
+                  <option value="topSet">Top set load</option>
+                  <option value="reps">Total reps</option>
+                </select>
+              </label>
+              <label class="toggle-line">
+                <input id="includeCable" type="checkbox" />
+                Include cable-excluded lifts
+              </label>
+            </div>
+          </section>
+
+          <section class="stats-grid">
+            <article class="panel wide-panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="label">Timeline</span>
+                  <h2 id="timelineTitle">Session trend</h2>
+                </div>
+              </div>
+              <div id="timelineChart" class="line-chart tall-chart"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="label">Breakdown</span>
+                  <h2>By muscle group</h2>
+                </div>
+              </div>
+              <div id="statsBreakdown" class="bar-chart"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="label">Effort</span>
+                  <h2>RIR spread</h2>
+                </div>
+              </div>
+              <div id="statsRir" class="rir-chart"></div>
+            </article>
+          </section>
+        </section>
+
+        <section class="view" id="historyView" aria-label="Session history">
+          <div class="history-layout">
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="label">Sessions</span>
+                  <h2>Session history</h2>
+                </div>
+                <input id="historySearch" class="search-input" placeholder="Filter history" />
+              </div>
+              <div id="historyList" class="session-list"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="label">Details</span>
+                  <h2 id="historyDetailTitle">Select a session</h2>
+                </div>
+              </div>
+              <div id="historyDetail" class="history-detail"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="logView" aria-label="Log a session">
+          <div class="split-workspace">
+            <section class="panel input-panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="label">Raw Notes</span>
+                  <h2>Paste the rushed version</h2>
+                </div>
+              </div>
+              <div class="session-meta-grid">
+                <label>
+                  Session date
+                  <input id="sessionDate" type="date" />
+                </label>
+                <label>
+                  Session name
+                  <input id="sessionName" placeholder="Upper A, Push, Back day..." />
+                </label>
+              </div>
+              <div class="voice-panel">
+                <div class="voice-header">
+                  <div>
+                    <span class="label">Voice Notes</span>
+                    <h2>Record a set note</h2>
+                  </div>
+                  <span id="voiceSupport" class="voice-status">Checking microphone tools...</span>
+                </div>
+                <div class="voice-actions">
+                  <button id="startVoiceButton" class="primary-button" type="button">Start VN</button>
+                  <button id="stopVoiceButton" class="secondary-button" type="button" disabled>Stop & Save</button>
+                  <button id="clearVoiceButton" class="ghost-button" type="button">Clear VN Text</button>
+                </div>
+                <div id="voiceTranscript" class="voice-transcript">Each saved voice note appends into Raw Notes below.</div>
+                <div id="voiceNoteList" class="voice-note-list"></div>
+              </div>
+              <textarea id="rawNotes" spellcheck="false" placeholder="Paste notes like: Lat pulldown 100kg 1x5 0 RIR last rep was bad form..."></textarea>
+              <div class="input-actions">
+                <button id="parseButton" class="primary-button" type="button">Parse Notes</button>
+                <button id="aiButton" class="secondary-button" type="button">Try Local AI</button>
+                <button id="saveSessionButton" class="secondary-button" type="button">Save to History</button>
+                <button id="saveAndSyncButton" class="secondary-button" type="button">Save & Queue Sync</button>
+                <label class="ghost-button file-action">
+                  Import Notes File
+                  <input id="notesFileInput" type="file" accept=".md,.txt,text/markdown,text/plain" />
+                </label>
+                <button id="clearButton" class="ghost-button" type="button">Clear</button>
+              </div>
+              <div class="ai-settings">
+                <label>
+                  Local endpoint
+                  <input id="aiEndpoint" placeholder="Local PC only, e.g. Ollama endpoint" />
+                </label>
+                <label>
+                  Model
+                  <input id="aiModel" value="qwen3:4b" />
+                </label>
+              </div>
+              <p id="parseStatus" class="status-line">Fallback parser is ready offline. Pick any date to append an older session.</p>
+            </section>
+
+            <section class="panel output-panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="label">Parsed</span>
+                  <h2>Session rows</h2>
+                </div>
+                <button id="copyMarkdownButton" class="ghost-button" type="button">Copy Markdown</button>
+              </div>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Exercise</th>
+                      <th>Muscle</th>
+                      <th>Weight</th>
+                      <th>Reps</th>
+                      <th>RIR</th>
+                      <th>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody id="parsedRows"></tbody>
+                </table>
+              </div>
+              <pre id="markdownOutput" class="markdown-output"></pre>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="exercisesView" aria-label="Exercises">
+          <article class="panel full-panel">
+            <div class="panel-heading">
+              <div>
+                <span class="label">Exercise Index</span>
+                <h2>Tracked movements</h2>
+              </div>
+              <input id="exerciseSearch" class="search-input" placeholder="Filter exercises" />
+            </div>
+            <div id="exerciseList" class="exercise-list"></div>
+          </article>
+        </section>
+
+        <section class="view" id="notesView" aria-label="Notes">
+          <div class="notes-grid">
+            <article class="panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="label">Next Session</span>
+                  <h2>Focus list</h2>
+                </div>
+              </div>
+              <ul id="focusList" class="note-list"></ul>
+            </article>
+            <article class="panel">
+              <div class="panel-heading">
+                <div>
+                  <span class="label">Rules</span>
+                  <h2>Calculation caveats</h2>
+                </div>
+              </div>
+              <ul id="ruleList" class="note-list"></ul>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
