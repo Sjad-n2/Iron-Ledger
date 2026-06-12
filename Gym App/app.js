@@ -25,6 +25,7 @@ const seedFiles = {};
 
 const STORAGE_KEY = "iron-ledger-local-sessions";
 const VOICE_NOTES_KEY = "iron-ledger-voice-notes";
+const DELETED_SESSIONS_KEY = "iron-ledger-deleted-sessions";
 const MAX_IMPORT_FILES = 20;
 const MAX_IMPORT_BYTES = 2 * 1024 * 1024;
 const SESSION_MARKER = "--- START OF NEW SESSION LOG ---";
@@ -43,6 +44,9 @@ const state = {
   files: { ...seedFiles },
   rows: [],
   localSessions: [],
+  deletedSessionKeys: [],
+  account: null,
+  cloudAvailable: false,
   voiceNotes: [],
   recognition: null,
   voiceDraft: "",
@@ -208,6 +212,7 @@ function parseVaultRows(files) {
       const notes = cells[6] || "";
       tableRows.push({
         id: `vault-${fileName}-${activeDate}-${tableRows.length}`,
+        sessionKey: `vault:${fileName}:${activeDate || "Unknown"}`,
         source: "Vault",
         date: activeDate || "Unknown",
         sessionName: fileName.replace(/\.(md|txt)$/i, "") || "Vault session",
@@ -234,6 +239,7 @@ function parseVaultRows(files) {
       tableRows.push({
         ...row,
         id: `log-${fileName}-${activeLogDate}-${tableRows.length}`,
+        sessionKey: `vault:${fileName}:${activeLogDate || "Unknown"}`,
         source: "Vault",
         date: activeLogDate || "Unknown",
         sessionName: fileName.replace(/\.(md|txt)$/i, "") || "Vault session"
@@ -268,6 +274,30 @@ function saveLocalSessions(sessions) {
   storage.setItem(STORAGE_KEY, JSON.stringify(sessions));
 }
 
+function loadDeletedSessionKeys() {
+  const storage = getLocalStorage();
+  if (!storage) return [];
+  try {
+    return JSON.parse(storage.getItem(DELETED_SESSIONS_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveDeletedSessionKeys(keys) {
+  const storage = getLocalStorage();
+  if (!storage) return;
+  storage.setItem(DELETED_SESSIONS_KEY, JSON.stringify([...new Set(keys)].slice(0, 500)));
+}
+
+function sessionStorageKey(session) {
+  return session?.key || `${session?.source || "Local"}:${session?.date || "Unknown"}:${session?.title || session?.name || "Workout"}`;
+}
+
+function rowSessionKey(row) {
+  return row.sessionKey || `${row.source || "Local"}:${row.date || "Unknown"}:${row.sessionName || "Workout"}`;
+}
+
 function loadVoiceNotes() {
   const storage = getLocalStorage();
   if (!storage) return [];
@@ -284,12 +314,180 @@ function saveVoiceNotes(notes) {
   storage.setItem(VOICE_NOTES_KEY, JSON.stringify(notes.slice(0, 20)));
 }
 
+async function apiJson(path, options = {}) {
+  const headers = {
+    Accept: "application/json",
+    ...(options.body ? { "Content-Type": "application/json" } : {}),
+    ...(options.headers || {})
+  };
+  const response = await fetch(path, {
+    ...options,
+    headers,
+    credentials: "include"
+  });
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    const error = new Error("Account backend is not configured on this host.");
+    error.status = 0;
+    throw error;
+  }
+  const data = await response.json();
+  if (!response.ok) {
+    const error = new Error(data.error || "Request failed.");
+    error.status = response.status;
+    throw error;
+  }
+  return data;
+}
+
+function renderAccount() {
+  const status = $("#accountStatus");
+  if (!status) return;
+  const signedIn = Boolean(state.account);
+  $("#accountEmail").disabled = signedIn;
+  $("#accountPassword").disabled = signedIn;
+  $("#loginButton").hidden = signedIn;
+  $("#registerButton").hidden = signedIn;
+  $("#logoutButton").hidden = !signedIn;
+  $("#syncAccountButton").disabled = !signedIn;
+  status.textContent = signedIn
+    ? `Signed in as ${state.account.email}`
+    : state.cloudAvailable
+      ? "Sign in to store sessions securely across devices."
+      : "Account backend not connected yet. Local mode is active.";
+}
+
+function normaliseCloudSession(session) {
+  let rows = [];
+  try {
+    rows = typeof session.rows_json === "string" ? JSON.parse(session.rows_json) : session.rows || [];
+  } catch {
+    rows = [];
+  }
+  return {
+    id: `cloud-${session.id}`,
+    key: `cloud:${session.id}`,
+    remoteId: session.id,
+    source: "Cloud",
+    date: session.session_date || session.date,
+    name: session.name || "Workout",
+    markdown: session.markdown || "",
+    rows,
+    synced: true,
+    savedAt: session.updated_at || session.created_at || new Date().toISOString()
+  };
+}
+
+function mergeCloudSessions(cloudSessions) {
+  const cloud = cloudSessions.map(normaliseCloudSession);
+  const cloudIds = new Set(cloud.map((session) => session.remoteId));
+  const local = loadLocalSessions().filter((session) => !session.remoteId || !cloudIds.has(session.remoteId));
+  saveLocalSessions([...local, ...cloud]);
+}
+
+async function pullCloudSessions() {
+  if (!state.account) return;
+  const data = await apiJson("/api/sessions");
+  mergeCloudSessions(data.sessions || []);
+  renderDashboard();
+}
+
+async function pushSessionToCloud(session) {
+  if (!state.account) return null;
+  const data = await apiJson("/api/sessions", {
+    method: "POST",
+    body: JSON.stringify({
+      clientId: session.id,
+      date: session.date,
+      name: session.name,
+      markdown: session.markdown,
+      rows: session.rows
+    })
+  });
+  return normaliseCloudSession(data.session);
+}
+
+async function syncLocalToAccount() {
+  if (!state.account) {
+    $("#accountStatus").textContent = "Sign in before syncing to your account.";
+    return;
+  }
+  const sessions = loadLocalSessions();
+  const unsynced = sessions.filter((session) => !session.remoteId);
+  if (!unsynced.length) {
+    $("#accountStatus").textContent = "No local-only sessions to sync.";
+    return;
+  }
+  $("#accountStatus").textContent = `Syncing ${unsynced.length} local session${unsynced.length === 1 ? "" : "s"}...`;
+  const synced = [];
+  for (const session of unsynced) {
+    synced.push(await pushSessionToCloud(session));
+  }
+  const syncedLocalIds = new Set(unsynced.map((session) => session.id));
+  const remaining = loadLocalSessions().filter((session) => !syncedLocalIds.has(session.id));
+  saveLocalSessions([...remaining, ...synced.filter(Boolean)]);
+  $("#accountStatus").textContent = `Synced ${synced.length} session${synced.length === 1 ? "" : "s"} to your account.`;
+  renderDashboard();
+}
+
+async function initAccount() {
+  try {
+    const data = await apiJson("/api/me");
+    state.cloudAvailable = true;
+    state.account = data.user || null;
+    renderAccount();
+    if (state.account) await pullCloudSessions();
+  } catch {
+    state.cloudAvailable = false;
+    state.account = null;
+    renderAccount();
+  }
+}
+
+async function handleAccountAuth(mode) {
+  const email = $("#accountEmail").value.trim();
+  const password = $("#accountPassword").value;
+  if (!email || !password) {
+    $("#accountStatus").textContent = "Enter an email and password.";
+    return;
+  }
+  try {
+    $("#accountStatus").textContent = mode === "register" ? "Creating account..." : "Signing in...";
+    const data = await apiJson(`/api/auth/${mode}`, {
+      method: "POST",
+      body: JSON.stringify({ email, password })
+    });
+    state.cloudAvailable = true;
+    state.account = data.user;
+    $("#accountPassword").value = "";
+    renderAccount();
+    await pullCloudSessions();
+    await syncLocalToAccount();
+  } catch (error) {
+    $("#accountStatus").textContent = error.message;
+    renderAccount();
+  }
+}
+
+async function logoutAccount() {
+  try {
+    await apiJson("/api/auth/logout", { method: "POST" });
+  } catch {
+    // Local UI logout still matters even if the network request fails.
+  }
+  state.account = null;
+  renderAccount();
+  renderDashboard();
+}
+
 function rowsFromLocalSessions(sessions) {
   return sessions.flatMap((session) =>
     session.rows.map((row, index) => ({
       ...row,
       id: `${session.id}-${index}`,
-      source: "Local",
+      sessionKey: session.key || session.id,
+      remoteId: session.remoteId || null,
+      source: session.source || "Local",
       date: session.date,
       sessionName: session.name || "Logged session",
       synced: Boolean(session.synced),
@@ -303,7 +501,9 @@ function rowsFromLocalSessions(sessions) {
 
 function refreshRows() {
   state.localSessions = loadLocalSessions();
-  state.rows = [...parseVaultRows(state.files), ...rowsFromLocalSessions(state.localSessions)];
+  state.deletedSessionKeys = loadDeletedSessionKeys();
+  const deleted = new Set(state.deletedSessionKeys);
+  state.rows = [...parseVaultRows(state.files), ...rowsFromLocalSessions(state.localSessions)].filter((row) => !deleted.has(rowSessionKey(row)));
   return state.rows;
 }
 
@@ -368,15 +568,20 @@ function volumeByMuscle(rows, date = null, includeExcluded = false) {
 
 function getSessions(rows) {
   const grouped = rows.reduce((acc, row) => {
-    const key = row.date;
+    const key = rowSessionKey(row);
     acc[key] ||= {
-      date: key,
+      key,
+      id: row.sessionKey || key,
+      remoteId: row.remoteId || null,
+      date: row.date,
       title: row.sessionName || "Workout",
       rows: [],
       source: row.source
     };
     acc[key].rows.push(row);
     if (row.source === "Local") acc[key].source = "Local";
+    if (row.source === "Cloud") acc[key].source = "Cloud";
+    if (row.remoteId) acc[key].remoteId = row.remoteId;
     if (row.sessionName && row.sessionName !== "Vault session") acc[key].title = row.sessionName;
     return acc;
   }, {});
@@ -475,6 +680,7 @@ function renderDashboard() {
   renderHistory();
   renderExercises(rows);
   updateSyncStatus();
+  renderAccount();
 }
 
 function renderVolumeChart(selector, data, unit = "") {
@@ -597,11 +803,11 @@ function renderHistory() {
     const text = `${session.date} ${session.title} ${session.rows.map((row) => row.exercise).join(" ")}`.toLowerCase();
     return text.includes(query);
   });
-  const selected = filtered.find((session) => session.date === state.selectedHistoryDate) || filtered[0];
-  state.selectedHistoryDate = selected?.date || null;
+  const selected = filtered.find((session) => session.key === state.selectedHistoryDate) || filtered[0];
+  state.selectedHistoryDate = selected?.key || null;
 
   $("#historyList").innerHTML = filtered.length
-    ? filtered.map((session) => sessionCard(session, false, session.date === state.selectedHistoryDate)).join("")
+    ? filtered.map((session) => sessionCard(session, false, session.key === state.selectedHistoryDate)).join("")
     : `<p class="empty-state">No sessions match that filter.</p>`;
   renderHistoryDetail(selected);
 }
@@ -610,9 +816,16 @@ function sessionCard(session, compact = false, active = false) {
   const volume = Math.round(sumVolume(session.rows));
   const setCount = session.rows.reduce((sum, row) => sum + (row.set || 1), 0);
   const muscles = [...new Set(session.rows.map((row) => row.muscle))].slice(0, 4);
-  const syncLabel = session.source === "Local" ? (session.rows.some((row) => row.synced) ? "synced" : "pending") : "vault";
+  const syncLabel =
+    session.source === "Cloud"
+      ? "account"
+      : session.source === "Local"
+        ? session.rows.some((row) => row.synced)
+          ? "synced"
+          : "pending"
+        : "vault";
   return `
-    <button class="session-card ${active ? "active" : ""}" data-history-date="${escapeAttr(session.date)}" type="button">
+    <button class="session-card ${active ? "active" : ""}" data-history-key="${escapeAttr(session.key)}" type="button">
       <span>
         <strong>${escapeHtml(dateLabel(session.date))}</strong>
         <small>${escapeHtml(session.title)}</small>
@@ -636,11 +849,16 @@ function renderHistoryDetail(session) {
   }
   $("#historyDetailTitle").textContent = dateLabel(session.date);
   const volume = Math.round(sumVolume(session.rows));
+  const canDelete = session.source === "Local" || session.source === "Cloud" || session.source === "Vault";
   $("#historyDetail").innerHTML = `
     <div class="detail-summary">
       <span><strong>${session.rows.length}</strong><small>Exercises</small></span>
       <span><strong>${volume.toLocaleString()}kg</strong><small>Volume</small></span>
       <span><strong>${escapeHtml(session.source)}</strong><small>Source</small></span>
+    </div>
+    <div class="detail-actions">
+      <button id="deleteSessionButton" class="danger-button" type="button" ${canDelete ? "" : "disabled"}>Delete Session</button>
+      <span>${session.source === "Vault" ? "Vault/imported sessions are hidden in the app; your markdown file is not rewritten." : "Deletes this saved session from this browser and your account when signed in."}</span>
     </div>
     <div class="table-wrap">
       <table>
@@ -1126,31 +1344,71 @@ async function tryLocalAi() {
   }
 }
 
-function saveParsedSession() {
+async function deleteSelectedSession() {
+  const session = getSessions(refreshRows()).find((item) => item.key === state.selectedHistoryDate);
+  if (!session) return;
+  const confirmed = window.confirm(`Delete ${dateLabel(session.date)} (${session.title}) from Iron Ledger?`);
+  if (!confirmed) return;
+
+  if (session.remoteId && state.account) {
+    try {
+      await apiJson(`/api/sessions/${encodeURIComponent(session.remoteId)}`, { method: "DELETE" });
+    } catch (error) {
+      $("#historyDetail").insertAdjacentHTML("afterbegin", `<p class="empty-state">Cloud delete failed: ${escapeHtml(error.message)}</p>`);
+      return;
+    }
+  }
+
+  const deletedKey = sessionStorageKey(session);
+  const remaining = loadLocalSessions().filter((item) => item.key !== deletedKey && item.id !== deletedKey && item.remoteId !== session.remoteId);
+  saveLocalSessions(remaining);
+  saveDeletedSessionKeys([...loadDeletedSessionKeys(), deletedKey]);
+  state.selectedHistoryDate = null;
+  renderDashboard();
+  renderHistory();
+}
+
+async function saveParsedSession() {
   if (!state.parsed.length) {
     $("#parseStatus").textContent = "Parse notes before saving to history.";
     return;
   }
   const date = $("#sessionDate").value || todayIso();
   const name = $("#sessionName").value || "Workout";
-  const id = `local-${date}-${name}`;
-  const sessions = loadLocalSessions().filter((session) => session.id !== id);
-  sessions.push({
+  const id = `local-${date}-${name}-${Date.now()}`;
+  const markdown = rowsToMarkdown(state.parsed, { date, name });
+  const session = {
     id,
+    key: id,
+    source: "Local",
     date,
     name,
-    markdown: rowsToMarkdown(state.parsed, { date, name }),
+    markdown,
     rows: state.parsed,
     synced: false,
     savedAt: new Date().toISOString()
-  });
+  };
+  const sessions = loadLocalSessions().filter((session) => session.id !== id);
+  sessions.push(session);
   saveLocalSessions(sessions);
-  $("#parseStatus").textContent = `Saved ${state.parsed.length} rows locally and queued sync for ${date}.`;
+
+  if (state.account) {
+    try {
+      const cloudSession = await pushSessionToCloud(session);
+      const nextSessions = loadLocalSessions().filter((item) => item.id !== id);
+      saveLocalSessions([...nextSessions, cloudSession]);
+      $("#parseStatus").textContent = `Saved ${state.parsed.length} rows to your account for ${date}.`;
+    } catch (error) {
+      $("#parseStatus").textContent = `Saved locally, but account sync failed: ${error.message}`;
+    }
+  } else {
+    $("#parseStatus").textContent = `Saved ${state.parsed.length} rows locally and queued sync for ${date}.`;
+  }
   renderDashboard();
 }
 
-function saveAndQueueSync() {
-  saveParsedSession();
+async function saveAndQueueSync() {
+  await saveParsedSession();
   setView("dashboard");
 }
 
@@ -1209,6 +1467,10 @@ function bindEvents() {
     $("#parseStatus").textContent = `Parsed ${state.parsed.length} rows offline.`;
   });
   $("#aiButton").addEventListener("click", tryLocalAi);
+  $("#loginButton").addEventListener("click", () => handleAccountAuth("login"));
+  $("#registerButton").addEventListener("click", () => handleAccountAuth("register"));
+  $("#logoutButton").addEventListener("click", logoutAccount);
+  $("#syncAccountButton").addEventListener("click", syncLocalToAccount);
   $("#startVoiceButton").addEventListener("click", startVoiceNote);
   $("#stopVoiceButton").addEventListener("click", stopVoiceNote);
   $("#clearVoiceButton").addEventListener("click", clearVoiceNotes);
@@ -1237,9 +1499,15 @@ function bindEvents() {
   $("#sessionName").addEventListener("input", () => renderParsed(state.parsed));
 
   document.addEventListener("click", (event) => {
-    const card = event.target.closest("[data-history-date]");
+    const deleteButton = event.target.closest("#deleteSessionButton");
+    if (deleteButton) {
+      deleteSelectedSession();
+      return;
+    }
+
+    const card = event.target.closest("[data-history-key]");
     if (!card) return;
-    state.selectedHistoryDate = card.dataset.historyDate;
+    state.selectedHistoryDate = card.dataset.historyKey;
     setView("history");
     renderHistory();
   });
@@ -1251,3 +1519,4 @@ bindEvents();
 renderDashboard();
 renderParsed([]);
 renderVoiceNotes();
+initAccount();

@@ -92,6 +92,7 @@ button {
 
 .brand span,
 .vault-card span,
+.account-card span,
 .subtle,
 .status-line {
   color: var(--muted);
@@ -133,7 +134,8 @@ button {
   font-weight: 900;
 }
 
-.vault-card {
+.vault-card,
+.account-card {
   margin-top: auto;
   display: grid;
   gap: 8px;
@@ -141,6 +143,34 @@ button {
   background: #11161a;
   border: 1px solid var(--line-soft);
   border-radius: 8px;
+}
+
+.account-card {
+  margin-top: 10px;
+}
+
+.account-card input {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 11px;
+  color: var(--text);
+  background: #0d1216;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.account-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.account-actions button[hidden] {
+  display: none;
+}
+
+.account-actions #logoutButton {
+  grid-column: 1 / -1;
 }
 
 .label {
@@ -198,6 +228,7 @@ h2 {
 .primary-button,
 .secondary-button,
 .ghost-button,
+.danger-button,
 .file-button,
 .file-action {
   min-height: 38px;
@@ -228,6 +259,12 @@ h2 {
   background: transparent;
   color: var(--muted);
   border: 1px solid var(--line);
+}
+
+.danger-button {
+  background: #4a1e24;
+  color: #ffdce2;
+  border: 1px solid rgba(255, 111, 129, 0.45);
 }
 
 .file-button,
@@ -715,6 +752,23 @@ td {
   font-size: 11px;
 }
 
+.detail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  background: #151c21;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+}
+
+.detail-actions span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .empty-state {
   margin: 0;
   padding: 14px;
@@ -870,7 +924,8 @@ tr:last-child td {
 
   .topbar,
   .panel-heading,
-  .voice-header {
+  .voice-header,
+  .detail-actions {
     align-items: stretch;
     flex-direction: column;
   }

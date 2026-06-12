@@ -3,7 +3,7 @@ const vm = require("node:vm");
 
 const source = fs
   .readFileSync("app.js", "utf8")
-  .replace(/\$\("#sessionDate"\)\.value = todayIso\(\);\s*state\.voiceNotes = loadVoiceNotes\(\);\s*bindEvents\(\);\s*renderDashboard\(\);\s*renderParsed\(\[\]\);\s*renderVoiceNotes\(\);\s*$/, "");
+  .replace(/\$\("#sessionDate"\)\.value = todayIso\(\);\s*state\.voiceNotes = loadVoiceNotes\(\);\s*bindEvents\(\);\s*renderDashboard\(\);\s*renderParsed\(\[\]\);\s*renderVoiceNotes\(\);\s*initAccount\(\);\s*$/, "");
 
 const context = { console };
 vm.createContext(context);

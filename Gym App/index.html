@@ -51,13 +51,27 @@
 
         <div class="vault-card">
           <span class="label">Vault</span>
-          <strong id="vaultName">Seeded demo</strong>
-          <span id="vaultStatus">Using imported markdown snapshot</span>
+          <strong id="vaultName">No vault linked</strong>
+          <span id="vaultStatus">Import files, link a folder, or sign in.</span>
           <button id="pickVaultButton" class="ghost-button" type="button">Link Vault Folder</button>
           <label class="file-button">
             Import MD/TXT Files
             <input id="fileImportInput" type="file" accept=".md,.txt,text/markdown,text/plain" multiple />
           </label>
+        </div>
+
+        <div class="account-card">
+          <span class="label">Account</span>
+          <strong>Secure sync</strong>
+          <span id="accountStatus">Checking account backend...</span>
+          <input id="accountEmail" type="email" autocomplete="email" placeholder="Email" />
+          <input id="accountPassword" type="password" autocomplete="current-password" placeholder="Password" />
+          <div class="account-actions">
+            <button id="loginButton" class="primary-button" type="button">Log In</button>
+            <button id="registerButton" class="secondary-button" type="button">Create</button>
+            <button id="logoutButton" class="secondary-button" type="button" hidden>Log Out</button>
+          </div>
+          <button id="syncAccountButton" class="ghost-button" type="button" disabled>Sync Local Sessions</button>
         </div>
       </aside>
 

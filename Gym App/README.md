@@ -19,6 +19,8 @@ Then open `http://localhost:4173`.
 - Exports parsed sessions as copied markdown, `.md`, or `.txt`.
 - Lets you pick a session date before exporting, so you can add old sessions too.
 - Saves parsed sessions into local browser history for the dashboard/history views.
+- Adds optional secure account login on Cloudflare Pages Functions + D1, so users can store sessions across devices without frontend API keys.
+- Lets users delete sessions from History. Account sessions are deleted from D1; local sessions are removed from browser storage; vault/imported sessions are hidden without rewriting your markdown files.
 - Queues saved sessions for vault sync until they are appended to `Workout_Log.md` or exported as a sync bundle.
 - Adds Voice Transcribe in Log Session, with built-in browser transcription where supported and a phone dictation fallback where it is not.
 - Adds a dedicated Stats view with filters for date range, muscle, exercise, graph metric, and cable-excluded lifts.
@@ -33,7 +35,8 @@ Recommended: Cloudflare Pages.
 Why:
 - It can host this as a free static site.
 - It supports the `_headers` file in this repo, which applies the security headers.
-- The app does not need a database, server, or frontend API key.
+- The app can run without a database, but secure login/account sync uses Cloudflare Pages Functions plus D1.
+- D1 has a free tier that is plenty for this kind of workout log, and there are no frontend API keys.
 
 Deploy settings:
 - Build command: leave blank
@@ -51,6 +54,31 @@ Step-by-step:
 6. Set output directory to `/`.
 7. Deploy.
 8. Share the `pages.dev` URL with friends.
+
+## Secure login setup
+
+Use Cloudflare D1 for the account database.
+
+1. In Cloudflare, open Workers & Pages.
+2. Create a D1 database called `iron-ledger`.
+3. Open the database console and run the SQL from `schema.sql`.
+4. Open your Pages project.
+5. Go to Settings > Bindings.
+6. Add a D1 database binding.
+7. Set the variable name to `IRON_LEDGER_DB`.
+8. Choose the `iron-ledger` D1 database.
+9. Redeploy the Pages project.
+
+After redeploy, the Account panel will switch from local-only mode to login mode. Users can create an account, log in, save sessions, and sync existing local sessions to their account.
+
+Security choices:
+- Passwords are hashed server-side with PBKDF2-SHA-256 and a per-user random salt.
+- Login sessions use random tokens stored as hashes in D1.
+- The browser receives only an `HttpOnly`, `Secure`, `SameSite=Lax` cookie.
+- Unsafe API requests are rejected unless they come from the same origin.
+- Login attempts are rate-limited per email/IP pair.
+- Session data is always filtered by the signed-in user ID.
+- No database credentials or provider secrets are placed in frontend files.
 
 Voice Transcribe requires HTTPS and microphone permission when the browser supports the Web Speech API. Hosted Cloudflare Pages URLs use HTTPS, so the browser can ask for microphone access. Chrome/Edge are the best targets for in-page transcription.
 
