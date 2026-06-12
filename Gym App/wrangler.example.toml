@@ -1,8 +1,0 @@
-name = "iron-ledger"
-compatibility_date = "2026-06-12"
-pages_build_output_dir = "."
-
-[[d1_databases]]
-binding = "IRON_LEDGER_DB"
-database_name = "iron-ledger"
-database_id = "replace-with-your-d1-database-id"
