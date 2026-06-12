@@ -1,0 +1,13 @@
+name = "iron-ledger"
+main = "./worker.js"
+compatibility_date = "2026-06-12"
+
+[assets]
+directory = "."
+binding = "ASSETS"
+run_worker_first = true
+
+[[d1_databases]]
+binding = "IRON_LEDGER_DB"
+database_name = "iron-ledger"
+database_id = "778714e1-dcfe-4f3e-b48b-2f932d205d94"
